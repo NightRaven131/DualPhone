@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,9 +46,7 @@ jobs:
       # supaya mode Remote (Firebase) bisa jalan. Kalau belum ada, langkah ini dilewati
       # dan build tetap jalan tapi mode Remote tidak akan berfungsi.
       - name: Inject google-services.json
-        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        if: ${{ env.GOOGLE_SERVICES_JSON != '' }}
         run: echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
 
       - name: Build debug APKs (admin & subuser)
@@ -74,4 +74,3 @@ jobs:
             app/build/outputs/apk/subuser/debug/app-subuser-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
