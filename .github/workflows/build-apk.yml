@@ -10,9 +10,42 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Cari release TERBARU yang beneran punya asset .zip (skip release lama
+      # hasil build yang isinya cuma APK, tanpa perlu lo inget-inget nama tag).
+      - name: Find release containing project zip
+        id: findzip
+        run: |
+          TAGS=$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName -q '.[].tagName')
+          FOUND_TAG=""
+          for TAG in $TAGS; do
+            if gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name' | grep -qi '\.zip$'; then
+              FOUND_TAG="$TAG"
+              break
+            fi
+          done
+          if [ -z "$FOUND_TAG" ]; then
+            echo "::error::Nggak ketemu Release yang ada file .zip source code-nya. Upload dulu zip project sebagai asset di salah satu Release."
+            exit 1
+          fi
+          echo "Pakai release: $FOUND_TAG"
+          echo "tag=$FOUND_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download project zip from Release
+        run: |
+          mkdir -p source
+          gh release download "${{ steps.findzip.outputs.tag }}" --repo "${{ github.repository }}" --pattern '*.zip' --dir source --clobber
+
+      - name: Extract project zip
+        run: |
+          ZIP_FILE=$(find source -maxdepth 1 -name '*.zip' | head -n 1)
+          echo "Extracting: $ZIP_FILE"
+          mkdir -p project
+          unzip -q "$ZIP_FILE" -d project
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -23,7 +56,7 @@ jobs:
       - name: Locate Gradle project root
         id: project
         run: |
-          DIR=$(dirname "$(find . -maxdepth 4 -name settings.gradle | head -n 1)")
+          DIR=$(dirname "$(find project -maxdepth 4 -name settings.gradle | head -n 1)")
           echo "Project root ditemukan di: $DIR"
           echo "dir=$DIR" >> "$GITHUB_OUTPUT"
 
