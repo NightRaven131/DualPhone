@@ -18,8 +18,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # android-actions/setup-android@v3 sering gagal karena masih coba install
+      # package SDK lama "tools" yang sudah dihapus dari repository Android.
+      # Runner ubuntu-latest sudah punya Android SDK ke-install duluan, jadi kita
+      # cukup accept license + pastikan komponen yang dipakai project ini ada.
+      - name: Prepare Android SDK
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | sort -V | tail -n 1)
+          echo "Using sdkmanager at: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       # Repo ini sengaja tidak menyertakan gradle-wrapper.jar (binary),
       # jadi kita generate wrapper-nya di runner (runner PUNYA akses internet, beda dengan sandbox saya).
@@ -36,25 +44,33 @@ jobs:
       # supaya mode Remote (Firebase) bisa jalan. Kalau belum ada, langkah ini dilewati
       # dan build tetap jalan tapi mode Remote tidak akan berfungsi.
       - name: Inject google-services.json
-        if: ${{ env.GOOGLE_SERVICES_JSON != '' }}
+        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build debug APKs (admin & subuser)
+        run: ./gradlew assembleAdminDebug assembleSubuserDebug --stacktrace
 
-      - name: Upload APK as artifact
+      - name: Upload Admin APK
         uses: actions/upload-artifact@v4
         with:
-          name: dualphone-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: dualphone-admin-debug-apk
+          path: app/build/outputs/apk/admin/debug/app-admin-debug.apk
 
-      - name: Create GitHub Release with APK
+      - name: Upload SubUser APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dualphone-subuser-debug-apk
+          path: app/build/outputs/apk/subuser/debug/app-subuser-debug.apk
+
+      - name: Create GitHub Release with both APKs
         if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: |
+            app/build/outputs/apk/admin/debug/app-admin-debug.apk
+            app/build/outputs/apk/subuser/debug/app-subuser-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
