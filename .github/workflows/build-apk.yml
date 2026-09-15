@@ -20,49 +20,46 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # android-actions/setup-android@v3 sering gagal karena masih coba install
-      # package SDK lama "tools" yang sudah dihapus dari repository Android.
-      # Runner ubuntu-latest sudah punya Android SDK ke-install duluan, jadi kita
-      # cukup accept license + pastikan komponen yang dipakai project ini ada.
+      - name: Locate Gradle project root
+        id: project
+        run: |
+          DIR=$(dirname "$(find . -maxdepth 4 -name settings.gradle | head -n 1)")
+          echo "Project root ditemukan di: $DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
       - name: Prepare Android SDK
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | sort -V | tail -n 1)
-          echo "Using sdkmanager at: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      # Repo ini sengaja tidak menyertakan gradle-wrapper.jar (binary),
-      # jadi kita generate wrapper-nya di runner (runner PUNYA akses internet, beda dengan sandbox saya).
       - name: Download Gradle & generate wrapper
+        working-directory: ${{ steps.project.outputs.dir }}
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip
           unzip -q gradle-8.7-bin.zip
-          echo "$PWD/gradle-8.7/bin" >> $GITHUB_PATH
           export PATH="$PWD/gradle-8.7/bin:$PATH"
           gradle wrapper --gradle-version 8.7
 
-      # WAJIB: taruh google-services.json project Firebase-mu sendiri sebagai
-      # GitHub Secret bernama GOOGLE_SERVICES_JSON (isi file, base64 atau plain JSON),
-      # supaya mode Remote (Firebase) bisa jalan. Kalau belum ada, langkah ini dilewati
-      # dan build tetap jalan tapi mode Remote tidak akan berfungsi.
       - name: Inject google-services.json
         if: ${{ env.GOOGLE_SERVICES_JSON != '' }}
-        run: echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+        run: echo "$GOOGLE_SERVICES_JSON" > "${{ steps.project.outputs.dir }}/app/google-services.json"
 
       - name: Build debug APKs (admin & subuser)
+        working-directory: ${{ steps.project.outputs.dir }}
         run: ./gradlew assembleAdminDebug assembleSubuserDebug --stacktrace
 
       - name: Upload Admin APK
         uses: actions/upload-artifact@v4
         with:
           name: dualphone-admin-debug-apk
-          path: app/build/outputs/apk/admin/debug/app-admin-debug.apk
+          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/admin/debug/app-admin-debug.apk
 
       - name: Upload SubUser APK
         uses: actions/upload-artifact@v4
         with:
           name: dualphone-subuser-debug-apk
-          path: app/build/outputs/apk/subuser/debug/app-subuser-debug.apk
+          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/subuser/debug/app-subuser-debug.apk
 
       - name: Create GitHub Release with both APKs
         if: github.event_name == 'workflow_dispatch'
@@ -70,7 +67,7 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           files: |
-            app/build/outputs/apk/admin/debug/app-admin-debug.apk
-            app/build/outputs/apk/subuser/debug/app-subuser-debug.apk
+            ${{ steps.project.outputs.dir }}/app/build/outputs/apk/admin/debug/app-admin-debug.apk
+            ${{ steps.project.outputs.dir }}/app/build/outputs/apk/subuser/debug/app-subuser-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
